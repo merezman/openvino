@@ -13,7 +13,8 @@
 namespace cldnn {
 
 enum class KernelFormat {
-    SOURCE,
+    SOURCE_OCL,
+    SOURCE_SYCL,
     NATIVE_BIN,
 };
 

@@ -325,7 +325,12 @@ void kernels_cache::build_batch(const batch_program& batch, compiled_kernels& co
         _builder->build_kernels(precompiled.data(), precompiled.size(), KernelFormat::NATIVE_BIN, "", kernels);
     } else {
         auto combined_source = join_strings(batch.source);
-        _builder->build_kernels(combined_source.data(), combined_source.size(), KernelFormat::SOURCE, batch.options, kernels);
+        auto format = KernelFormat::SOURCE_OCL;
+        if(batch.language == kernel_language::CM)
+            format = KernelFormat::SOURCE_OCL;
+        else if(batch.language == kernel_language::SYCL)
+            format = KernelFormat::SOURCE_SYCL;
+        _builder->build_kernels(combined_source.data(), combined_source.size(), format, batch.options, kernels);
         if (dump_sources && dump_file.good()) {
             dump_file << "\n/* Build Log:\n";
             // Retreive build log from the first kernel only

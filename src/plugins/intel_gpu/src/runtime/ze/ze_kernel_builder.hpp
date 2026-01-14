@@ -29,8 +29,12 @@ class ze_kernel_builder : public kernel_builder{
             nullptr // specialization constants
         };
         switch (src_format) {
-        case KernelFormat::SOURCE: {
+        case KernelFormat::SOURCE_OCL: {
             module_desc.format = ze_module_format_oclc;
+            break;
+        }
+        case KernelFormat::SOURCE_SYCL: {
+            module_desc.format = ze_module_format_sycl;
             break;
         }
         case KernelFormat::NATIVE_BIN: {

@@ -34,6 +34,7 @@ namespace ze {
 
 static constexpr uint64_t default_timeout = std::numeric_limits<uint64_t>::max();
 static constexpr ze_module_format_t ze_module_format_oclc = (ze_module_format_t) 3U;
+static constexpr ze_module_format_t ze_module_format_sycl = (ze_module_format_t) 4U;
 
 }  // namespace ze
 }  // namespace cldnn

@@ -28,7 +28,7 @@ class ocl_kernel_builder : public kernel_builder{
             cl_program program_handle;
             cl_int err = CL_INVALID_VALUE;
             switch (src_format) {
-            case KernelFormat::SOURCE: {
+            case KernelFormat::SOURCE_OCL: {
                 const char **strings = reinterpret_cast<const char**>(&src);
                 const size_t *lenghts = &src_bytes;
                 const cl_uint count = 1;

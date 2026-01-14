@@ -127,6 +127,65 @@ bool check_cm_jit_support(cldnn::engine& e, const cldnn::ExecutionConfig& config
     return cache.at(device);
 }
 
+bool check_sycl_jit_support(cldnn::engine& e, const cldnn::ExecutionConfig& config) {
+    // Even though CM frontend is a component of Intel GPU driver on Windows, the version
+    // may still be incompatible to existing CM kernels.
+    auto device = e.get_device().get();
+
+    static std::mutex m;
+    std::lock_guard<std::mutex> lock(m);
+
+    static std::map<cldnn::device*, bool> cache;
+    if (cache.find(device) != cache.end()) {
+        return cache.at(device);
+    }
+
+    std::shared_ptr<kernel_selector::KernelString> kernel_string = std::make_shared<kernel_selector::KernelString>();
+    // This program checks if SYCL sources can be jitted by current IGC version
+    const char* kernel_code = R""""(
+            #include <sycl/sycl.hpp>
+
+            namespace syclext = sycl::ext::oneapi;
+            namespace syclexp = sycl::ext::oneapi::experimental;
+
+            struct Iota;
+
+            [[clang::sycl_kernel_entry_point(Iota)]]
+            void iota(float start, float *ptr) {
+                size_t id = syclext::this_work_item::get_nd_item<1>().get_global_linear_id();
+                ptr[id] = start + static_cast<float>(id);
+            }
+            )"""";
+
+    kernel_string->str = kernel_code;
+    kernel_string->options = "";
+    kernel_string->entry_point = "_ZTS4Iota";
+    kernel_string->batch_compilation = true;
+    kernel_string->language = kernel_language::SYCL;
+
+    
+
+    // Add timestamp to avoid IGC uses a cached cm_check kernel.
+    auto timestamp = std::chrono::high_resolution_clock::now()
+                .time_since_epoch().count();
+    // kernel_string->options += " -DSEED=" + to_string(timestamp);
+
+    try {
+        cldnn::kernel_impl_params dummy_params;
+        std::cout<<"1"<<std::endl;
+        auto _kernels_cache_device_query = std::unique_ptr<cldnn::kernels_cache>(new cldnn::kernels_cache(e, config, 0));
+        std::cout<<"2"<<std::endl;
+        _kernels_cache_device_query->add_kernels_source(dummy_params, {kernel_string}, false);
+        std::cout<<"3"<<std::endl;
+        _kernels_cache_device_query->build_all();
+        std::cout<<"4"<<std::endl;
+        cache[device] = true;
+    } catch (std::exception&) {
+        cache[device] = false;
+    }
+    return cache.at(device);
+}
+
 bool query_microkernels_supported(cldnn::engine& e, const cldnn::ExecutionConfig& config) {
     auto device = e.get_device().get();
 

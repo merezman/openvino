@@ -45,11 +45,6 @@ void ze_engine::create_onednn_engine(const ExecutionConfig& config) {
         _onednn_engine = std::make_shared<dnnl::engine>(dnnl::l0_interop::make_engine(casted->get_driver(), casted->get_device(), casted->get_context()));
     }
 }
-
-dnnl::engine& ze_engine::get_onednn_engine() const {
-    OPENVINO_ASSERT(_onednn_engine, "[GPU] Can't get onednn engine handle as it was not initialized. Please check that create_onednn_engine() was called");
-    return *_onednn_engine;
-}
 #endif
 
 const ze_driver_handle_t ze_engine::get_driver() const {
@@ -72,50 +67,6 @@ const ze_device_handle_t ze_engine::get_device() const {
 
 allocation_type ze_engine::detect_usm_allocation_type(const void* memory) const {
     return ze::gpu_usm::detect_allocation_type(this, memory);
-}
-
-bool ze_engine::check_allocatable(const layout& layout, allocation_type type) {
-    OPENVINO_ASSERT(supports_allocation(type), "[GPU] Unsupported allocation type: ", type);
-
-    bool exceed_allocatable_mem_size = (layout.bytes_count() > get_device_info().max_alloc_mem_size);
-
-    // When dynamic shape upper bound makes bigger buffer, then return false.
-    if (exceed_allocatable_mem_size && layout.is_dynamic()) {
-        OPENVINO_ASSERT(layout.has_upper_bound(), "[GPU] Dynamic shape without upper bound tries to allocate");
-        return false;
-    }
-
-    OPENVINO_ASSERT(!exceed_allocatable_mem_size,
-                    "[GPU] Exceeded max size of memory object allocation: ",
-                    "requested ", layout.bytes_count(), " bytes, "
-                    "but max alloc size supported by device is ", get_device_info().max_alloc_mem_size, " bytes.",
-                    "Please try to reduce batch size or use lower precision.");
-
-    auto used_mem = get_used_device_memory(allocation_type::usm_device) + get_used_device_memory(allocation_type::usm_host);
-    auto exceed_available_mem_size = (layout.bytes_count() + used_mem > get_max_memory_size());
-
-    // When dynamic shape upper bound makes bigger buffer, then return false.
-    if (exceed_available_mem_size && layout.is_dynamic()) {
-        OPENVINO_ASSERT(layout.has_upper_bound(), "[GPU] Dynamic shape without upper bound tries to allocate");
-        return false;
-    }
-
-#ifdef __unix__
-    // Prevent from being killed by Ooo Killer of Linux
-    OPENVINO_ASSERT(!exceed_available_mem_size,
-                    "[GPU] Exceeded max size of memory allocation: ",
-                    "Required ", layout.bytes_count(), " bytes, already occupied : ", used_mem, " bytes, ",
-                    "but available memory size is ", get_max_memory_size(), " bytes");
-#else
-    if (exceed_available_mem_size) {
-        GPU_DEBUG_COUT << "[Warning] [GPU] Exceeded max size of memory allocation: " << "Required " << layout.bytes_count() << " bytes, already occupied : "
-                       << used_mem << " bytes, but available memory size is " << get_max_memory_size() << " bytes" << std::endl;
-        GPU_DEBUG_COUT << "Please note that performance might drop due to memory swap." << std::endl;
-        return false;
-    }
-#endif
-
-    return true;
 }
 
 memory::ptr ze_engine::allocate_memory(const layout& layout, allocation_type type, bool reset) {
@@ -176,18 +127,15 @@ memory_ptr ze_engine::create_subbuffer(const memory& memory, const layout& new_l
     if (new_layout.format.is_image_2d()) {
         OPENVINO_NOT_IMPLEMENTED;
     }
-    if (memory_capabilities::is_usm_type(memory.get_allocation_type())) {
-        auto& new_buf = reinterpret_cast<const ze::gpu_usm&>(memory);
-        auto ptr = new_buf.get_buffer().get();
-        auto sub_buffer = ze::UsmMemory(get_context(), get_device(), ptr, byte_offset);
-        return std::make_shared<ze::gpu_usm>(this,
-                                 new_layout,
-                                 sub_buffer,
-                                 memory.get_allocation_type(),
-                                 memory.get_mem_tracker());
-    } else {
-        OPENVINO_THROW("[GPU] Trying to create subbuffer for non usm memory");
-    }
+    OPENVINO_ASSERT(!memory_capabilities::is_usm_type(memory.get_allocation_type()), "[GPU] Trying to create subbuffer for non usm memory");
+    auto& new_buf = reinterpret_cast<const ze::gpu_usm&>(memory);
+    auto ptr = new_buf.get_buffer().get();
+    auto sub_buffer = ze::UsmMemory(get_context(), get_device(), ptr, byte_offset);
+    return std::make_shared<ze::gpu_usm>(this,
+                             new_layout,
+                             sub_buffer,
+                             memory.get_allocation_type(),
+                             memory.get_mem_tracker());
 }
 
 bool ze_engine::is_the_same_buffer(const memory& mem1, const memory& mem2) {
@@ -209,7 +157,7 @@ std::shared_ptr<kernel_builder> ze_engine::create_kernel_builder() const {
 
 void* ze_engine::get_user_context() const {
     auto& casted = downcast<ze_device>(*_device);
-    return static_cast<void*>(casted.get_driver());
+    return static_cast<void*>(casted.get_context());
 }
 
 stream::ptr ze_engine::create_stream(const ExecutionConfig& config) const {
@@ -218,10 +166,6 @@ stream::ptr ze_engine::create_stream(const ExecutionConfig& config) const {
 
 stream::ptr ze_engine::create_stream(const ExecutionConfig& config, void* handle) const {
     OPENVINO_NOT_IMPLEMENTED;
-}
-
-stream& ze_engine::get_service_stream() const {
-    return *_service_stream;
 }
 
 std::shared_ptr<cldnn::engine> ze_engine::create(const device::ptr device, runtime_types runtime_type) {

@@ -71,11 +71,6 @@ void ocl_engine::create_onednn_engine(const ExecutionConfig& config) {
 #endif
     }
 }
-
-dnnl::engine& ocl_engine::get_onednn_engine() const {
-    OPENVINO_ASSERT(_onednn_engine, "[GPU] Can't get onednn engine handle as it was not initialized. Please check that create_onednn_engine() was called");
-    return *_onednn_engine;
-}
 #endif
 
 const cl::Context& ocl_engine::get_cl_context() const {
@@ -99,51 +94,6 @@ const cl::UsmHelper& ocl_engine::get_usm_helper() const {
 allocation_type ocl_engine::detect_usm_allocation_type(const void* memory) const {
     return use_unified_shared_memory() ? ocl::gpu_usm::detect_allocation_type(this, memory)
                                        : allocation_type::unknown;
-}
-
-bool ocl_engine::check_allocatable(const layout& layout, allocation_type type) {
-    OPENVINO_ASSERT(supports_allocation(type) || type == allocation_type::cl_mem, "[GPU] Unsupported allocation type: ", type);
-
-    if (!get_enable_large_allocations()) {
-        bool exceed_allocatable_mem_size = (layout.bytes_count() > get_device_info().max_alloc_mem_size);
-
-        // When dynamic shape upper bound makes bigger buffer, then return false.
-        if (exceed_allocatable_mem_size && layout.is_dynamic()) {
-            OPENVINO_ASSERT(layout.has_upper_bound(), "[GPU] Dynamic shape without upper bound tries to allocate");
-            return false;
-        }
-
-        OPENVINO_ASSERT(!exceed_allocatable_mem_size,
-                        "[GPU] Exceeded max size of memory object allocation: ",
-                        "requested ", layout.bytes_count(), " bytes, "
-                        "but max alloc size supported by device is ", get_device_info().max_alloc_mem_size, " bytes.",
-                        "Please try to reduce batch size or use lower precision.");
-    }
-
-    auto used_mem = get_used_device_memory(allocation_type::usm_device) + get_used_device_memory(allocation_type::usm_host);
-    auto exceed_available_mem_size = (layout.bytes_count() + used_mem > get_max_memory_size());
-
-    // When dynamic shape upper bound makes bigger buffer, then return false.
-    if (exceed_available_mem_size && layout.is_dynamic()) {
-        OPENVINO_ASSERT(layout.has_upper_bound(), "[GPU] Dynamic shape without upper bound tries to allocate");
-        return false;
-    }
-
-#ifdef __unix__
-    // Prevent from being killed by Ooo Killer of Linux
-    OPENVINO_ASSERT(!exceed_available_mem_size,
-                    "[GPU] Exceeded max size of memory allocation: ",
-                    "Required ", layout.bytes_count(), " bytes, already occupied : ", used_mem, " bytes, ",
-                    "but available memory size is ", get_max_memory_size(), " bytes");
-#else
-    if (exceed_available_mem_size) {
-        GPU_DEBUG_COUT << "[Warning] [GPU] Exceeded max size of memory allocation: " << "Required " << layout.bytes_count() << " bytes, already occupied : "
-                       << used_mem << " bytes, but available memory size is " << get_max_memory_size() << " bytes" << std::endl;
-        GPU_DEBUG_COUT << "Please note that performance might drop due to memory swap." << std::endl;
-    }
-#endif
-
-    return true;
 }
 
 memory::ptr ocl_engine::allocate_memory(const layout& layout, allocation_type type, bool reset) {
@@ -324,10 +274,6 @@ stream::ptr ocl_engine::create_stream(const ExecutionConfig& config) const {
 
 stream::ptr ocl_engine::create_stream(const ExecutionConfig& config, void* handle) const {
     return std::make_shared<ocl_stream>(*this, config, handle);
-}
-
-stream& ocl_engine::get_service_stream() const {
-    return *_service_stream;
 }
 
 std::shared_ptr<cldnn::engine> ocl_engine::create(const device::ptr device, runtime_types runtime_type) {
